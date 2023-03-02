@@ -23,6 +23,10 @@ io.on("connection", (socket) => {
 	socket.on("answerCall", (data) => {
 		io.to(data.to).emit("callAccepted", data.signal)
 	})
+
+	socket.on('message', ({ name, message }) => {
+		io.emit('message', { name, message })
+	})
 })
 
 server.listen(5000, () => console.log("server is running on port 5000"))

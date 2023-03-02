@@ -8,7 +8,7 @@ import { CopyToClipboard } from "react-copy-to-clipboard"
 import Peer from "simple-peer"
 import io from "socket.io-client"
 import "./App.css"
-
+import Chat from "./Chat"
 
 const socket = io.connect('http://localhost:5000')
 function App() {
@@ -24,21 +24,64 @@ function App() {
 	const myVideo = useRef()
 	const userVideo = useRef()
 	const connectionRef= useRef()
+	const [incomingCallerName, setIncomingCallerName] = useState('')
+
+	const [ state, setState ] = useState({ message: "", name: "" })
+	const [ chat, setChat ] = useState([])
+	const socketRef = useRef()
+
+	const onMessageSubmit = (e) => {
+		e.preventDefault()
+
+		if(callAccepted) {
+			const { name, message } = state
+			socketRef.current.emit("message", { name, message })
+			e.preventDefault()
+			setState({ message: "", name })
+		}
+	}
+
+	const renderChat = () => {
+		return chat.map(({ name, message }, index) => (
+			<div key={index}>
+				<h3>
+					{name}: <span>{message}</span>
+				</h3>
+			</div>
+		))
+	}
+
+	useEffect(
+		() => {
+			socketRef.current = io.connect("http://localhost:5000")
+			socketRef.current.on("message", ({ name, message }) => {
+				setChat([ ...chat, { name, message } ])
+			})
+			return () => socketRef.current.disconnect()
+		},
+		[ chat ]
+	)
+
+	socket.on('disconnect', (data) => {
+		if(data == "callEnded") {
+			setCallAccepted(false)
+		} 
+	})
 
 	useEffect(() => {
 		navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
 			setStream(stream)
-				myVideo.current.srcObject = stream
+			myVideo.current.srcObject = stream
 		})
 
-	socket.on("me", (id) => {
+		socket.on("me", (id) => {
 			setMe(id)
 		})
 
 		socket.on("callUser", (data) => {
 			setReceivingCall(true)
 			setCaller(data.from)
-			setName(data.name)
+			setIncomingCallerName(data.name)
 			setCallerSignal(data.signal)
 		})
 	}, [])
@@ -58,9 +101,7 @@ function App() {
 			})
 		})
 		peer.on("stream", (stream) => {
-			
 				userVideo.current.srcObject = stream
-			
 		})
 		socket.on("callAccepted", (signal) => {
 			setCallAccepted(true)
@@ -72,6 +113,7 @@ function App() {
 
 	const answerCall =() =>  {
 		setCallAccepted(true)
+		setState({ ...state, name: name })
 		const peer = new Peer({
 			initiator: false,
 			trickle: false,
@@ -90,11 +132,14 @@ function App() {
 
 	const leaveCall = () => {
 		setCallEnded(true)
+		setCallAccepted(false)
+		setReceivingCall(false)
 		connectionRef.current.destroy()
 	}
 
 	return (
 		<>
+			<Chat onMessageSubmit={onMessageSubmit} state={state} setState={setState} renderChat={renderChat} />
 			<h1 style={{ textAlign: "center", color: '#fff' }}>Zoomish</h1>
 		<div className="container">
 			<div className="video-container">
@@ -113,7 +158,10 @@ function App() {
 					label="Name"
 					variant="filled"
 					value={name}
-					onChange={(e) => setName(e.target.value)}
+					onChange={(e) => {
+						setName(e.target.value)
+						setState({ ...state, name: e.target.value })
+					}}
 					style={{ marginBottom: "20px" }}
 				/>
 				<CopyToClipboard text={me} style={{ marginBottom: "2rem" }}>
@@ -145,7 +193,7 @@ function App() {
 			<div>
 				{receivingCall && !callAccepted ? (
 						<div className="caller">
-						<h1 >{name} is calling...</h1>
+						<h1 >{incomingCallerName} is calling...</h1>
 						<Button variant="contained" color="primary" onClick={answerCall}>
 							Answer
 						</Button>
